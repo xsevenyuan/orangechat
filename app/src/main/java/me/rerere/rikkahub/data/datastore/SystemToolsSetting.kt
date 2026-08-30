@@ -89,6 +89,12 @@ data class SystemToolsSetting(
 
     // Fingerprint: verify_fingerprint 工具, 弹出系统指纹/人脸验证框验证用户身份
     val fingerprintEnabled: Boolean = false,
+
+    // AI 设置感知与修改（get_app_settings/set_app_settings 工具——独立开关）
+    val appSettingsEnabled: Boolean = false,
+
+    // 世界书修改（lorebook_* 工具——独立开关，App 设置修改不可碰世界书）
+    val lorebookEnabled: Boolean = false,
 ) {
     fun getEnabledOptions(): Set<me.rerere.rikkahub.data.ai.tools.SystemToolOption> {
         val options = mutableSetOf<me.rerere.rikkahub.data.ai.tools.SystemToolOption>()
