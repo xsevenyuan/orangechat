@@ -241,16 +241,12 @@ class PomodoroTimerService : android.app.Service() {
     }
 
     private fun startForegroundCompat(notification: Notification) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            ServiceCompat.startForeground(
-                this,
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
+        me.rerere.rikkahub.service.SafeForeground.start(
+            this,
+            NOTIFICATION_ID,
+            notification,
+            specialUse = true
+        )
     }
 
     private fun updateNotification(notification: Notification) {

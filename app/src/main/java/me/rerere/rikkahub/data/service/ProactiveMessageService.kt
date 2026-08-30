@@ -457,7 +457,19 @@ class ProactiveMessageTriggerService : android.app.Service(), KoinComponent {
             .setSmallIcon(me.rerere.rikkahub.R.drawable.small_icon)
             .setPriority(androidx.core.app.NotificationCompat.PRIORITY_MIN)
             .build()
-        startForeground(20001, notification)
+        // 幻视/崩溃修复（照 Su 已验证方案）：Android 13+ 未授予 POST_NOTIFICATIONS 时，
+        // startForeground 会抛 CannotPostForegroundServiceNotificationException（RemoteServiceException，
+        // 从 Binder 线程异步抛，try-catch 兜不住，直接崩）。统一走 SafeForeground.start，
+        // 无权限时不启动前台并 stopSelf，避免崩溃。
+        if (!me.rerere.rikkahub.service.SafeForeground.start(
+                this,
+                20001,
+                notification,
+                specialUse = true
+            )
+        ) {
+            return START_NOT_STICKY
+        }
 
         CoroutineScope(Dispatchers.IO).launch {
             var conversationId: kotlin.uuid.Uuid? = null
@@ -603,6 +615,16 @@ class ProactiveMessageTriggerService : android.app.Service(), KoinComponent {
                             parts = listOf(UIMessagePart.Text(systemPrompt))
                         ))
                         addAll(historyMessages)
+                        // 关键修复：若历史最后一条是 USER（用户刚说的话），
+                        // 不能把合成的"发消息指令"(也是 USER)紧跟在后面——否则 mergeAdjacentSameRoleMessages
+                        // 会把"用户的话"和"指令"合并成同一条 USER，导致 AI 角色错乱（把你说的当我说的/幻觉）。
+                        // 这里插入一条空 ASSISTANT 作为分隔，保证 user/assistant 角色正确交替。
+                        if (historyMessages.lastOrNull()?.role == MessageRole.USER) {
+                            add(UIMessage(
+                                role = MessageRole.ASSISTANT,
+                                parts = emptyList()
+                            ))
+                        }
                         add(processedUserMessage)
                     }
                 )
@@ -903,6 +925,15 @@ class ProactiveMessageTriggerService : android.app.Service(), KoinComponent {
                 appendLine("绝对不要复述上一轮的对话内容，要发新的话题或新的关心。")
                 appendLine("如果你觉得现在没什么好说的，或者没什么有趣的话题，请只回复 [PASS] 即可。")
                 appendLine("[JUMP] 标记不会展示给用户，仅用于触发屏幕跳转。")
+                // 消息角色识别规则（幻视修复，与 Su 保持一致）：
+                // 只把 role=USER 的消息当作用户说的话；AI 自己历史生成的 ASSISTANT 消息
+                // 是"我之前说过的话"，绝对不要把 AI 自己的历史消息当作用户说的。
+                appendLine()
+                appendLine("【消息角色识别·重要】")
+                appendLine("- 角色为 user 的消息 = 用户对你说的内容，要响应、要记住。")
+                appendLine("- 角色为 assistant 的消息 = 你自己（AI）之前说过的话，是\"你\"说的，不是用户说的。")
+                appendLine("- 绝对不要把 assistant（你自己）的历史消息误当成用户说的话，也不要复述你自己的旧消息。")
+                appendLine("- 你现在的身份是 assistant，任务是主动向用户（user）发一条新消息。")
                 // 注入完整上下文（定位、前台app、app使用、通知、电量、健康等）
                 if (!deviceEventContext.isNullOrBlank()) {
                     appendLine()

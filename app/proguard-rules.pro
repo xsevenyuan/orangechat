@@ -45,3 +45,12 @@
 -keepattributes Signature, InnerClasses, EnclosingMethod
 -keep class com.fasterxml.jackson.** { *; }
 -keep class com.auth0.jwt.** { *; }
+
+# ===== JSch (SSH) — mwiede fork =====
+# JSch 内部通过反射加载 com.jcraft.jsch.jce.* 等类（随机数提供者、加密实现）。
+# release 开启 minify 时 R8 会混淆/移除这些反射加载的类，导致运行时
+# ClassNotFoundException: com.jcraft.jsch.jce.Random（SSH 工具全挂）。
+# keep 整个 JSch 包及反射会用到的内部类。
+-keep class com.jcraft.jsch.** { *; }
+-keep interface com.jcraft.jsch.** { *; }
+-dontwarn com.jcraft.jsch.**

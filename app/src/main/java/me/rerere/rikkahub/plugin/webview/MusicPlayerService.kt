@@ -145,8 +145,18 @@ class MusicPlayerService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // 必须最先调用 startForeground()，否则 Android 12+ 会抛出 ForegroundServiceStartNotAllowedException
-        startForeground(NOTIFICATION_ID, buildNotification(currentTitle.ifEmpty { "Music" }, currentArtist))
+        // 必须最先调用 startForeground()，否则 Android 12+ 会抛出 ForegroundServiceStartNotAllowedException。
+        // 统一走 SafeForeground：先检查 POST_NOTIFICATIONS，无权限时不启动前台并优雅退出，避免崩溃。
+        if (!me.rerere.rikkahub.service.SafeForeground.start(
+                this,
+                NOTIFICATION_ID,
+                buildNotification(currentTitle.ifEmpty { "Music" }, currentArtist),
+                specialUse = true
+            )
+        ) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
 
         when (intent?.action) {
             ACTION_PLAY -> {
@@ -358,14 +368,9 @@ class MusicPlayerService : Service() {
         val notification = buildNotification(title, artist)
 
         if (currentState == STATE_PLAYING) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                ServiceCompat.startForeground(
-                    this, NOTIFICATION_ID, notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-                )
-            } else {
-                startForeground(NOTIFICATION_ID, notification)
-            }
+            me.rerere.rikkahub.service.SafeForeground.start(
+                this, NOTIFICATION_ID, notification, specialUse = true
+            )
         } else {
             val nm = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
             nm.notify(NOTIFICATION_ID, notification)

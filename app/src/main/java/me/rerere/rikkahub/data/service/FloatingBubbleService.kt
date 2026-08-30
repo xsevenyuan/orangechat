@@ -181,15 +181,12 @@ class FloatingBubbleService : Service() {
             .setPriority(androidx.core.app.NotificationCompat.PRIORITY_MIN)
             .setOngoing(true)
             .build()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(
-                FOREGROUND_NOTIF_ID,
-                notification,
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            )
-        } else {
-            startForeground(FOREGROUND_NOTIF_ID, notification)
-        }
+        me.rerere.rikkahub.service.SafeForeground.start(
+            this,
+            FOREGROUND_NOTIF_ID,
+            notification,
+            specialUse = true
+        )
     }
 
     private fun showBubble(conversationId: String, senderName: String, avatar: Avatar) {

@@ -252,7 +252,15 @@ class DailySummaryTriggerService : Service() {
             .setSmallIcon(R.drawable.small_icon)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .build()
-        startForeground(NOTIFICATION_ID, notification)
+        // 安全启动前台：用 SafeForeground 检查 POST_NOTIFICATIONS，无权限则优雅退出，
+        // 避免 Android 13+ 无通知权限时 startForeground 抛 CannotPostForegroundServiceNotificationException 崩溃。
+        if (!me.rerere.rikkahub.service.SafeForeground.start(
+                this, NOTIFICATION_ID, notification, specialUse = true
+            )
+        ) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
 
         CoroutineScope(Dispatchers.IO).launch {
             try {

@@ -198,15 +198,14 @@ class WeixinBotService : Service(), org.koin.core.component.KoinComponent {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .build()
-        try {
-            androidx.core.app.ServiceCompat.startForeground(
-                this, NOTIFICATION_ID, notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+        // 统一走 SafeForeground：先检查 POST_NOTIFICATIONS（Android 13+ 无权限时 startForeground 会抛
+        // CannotPostForegroundServiceNotificationException，且从 Binder 线程异步抛、try-catch 兜不住，直接崩）。
+        // SafeForeground.start 会在无权限时不启动前台并 stopSelf，避免崩溃。
+        if (!me.rerere.rikkahub.service.SafeForeground.start(
+                this, NOTIFICATION_ID, notification, specialUse = true
             )
-        } catch (e: Exception) {
-            // 部分机型/低版本不支持 specialUse, 降级普通 startForeground
-            @Suppress("DEPRECATION")
-            startForeground(NOTIFICATION_ID, notification)
+        ) {
+            stopSelf()
         }
     }
 

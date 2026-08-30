@@ -185,6 +185,15 @@ class VoiceCallService : Service(), KoinComponent {
         // 否则触发 ForegroundServiceDidNotStartInTimeException 崩溃.
         // 不能等 ASR/TTS 异步初始化完成后才调用, 真正的初始化放到下面的协程里做.
         try {
+            // 先检查 POST_NOTIFICATIONS：Android 13+ 无权限时 startForeground 会抛
+            // CannotPostForegroundServiceNotificationException（Binder 线程异步抛、try-catch 兜不住），
+            // 直接崩。这里在 startForeground 前先判断，无权限则优雅退出。
+            if (!me.rerere.rikkahub.utils.NotificationUtil.hasNotificationPermission(this)) {
+                Log.w(TAG, "no POST_NOTIFICATIONS permission, skip VoiceCall foreground service")
+                _activeConversationId.value = null
+                stopSelf()
+                return START_NOT_STICKY
+            }
             ServiceCompat.startForeground(
                 this,
                 NOTIFICATION_ID,

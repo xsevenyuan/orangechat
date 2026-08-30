@@ -112,10 +112,40 @@ class ProactiveMessageWorker(
         wakeLock.acquire(5 * 60 * 1000L) // 5 minutes max
 
         try {
+            // 从 WorkManager 启动前台服务的正确姿势（照 Su/官方 RikkaHub 方案）：
+            // WorkManager 的 worker 若要在进程刚被重启时启动前台服务，必须先调用 setForeground()
+            // 把自身提升为"正在执行前台任务"的 worker，否则 startForegroundService 会抛
+            // ForegroundServiceStartNotAllowedException（Android 12+），导致"发着就退出"。
+            // 这里在启动 TriggerService 前先 setForeground() 占位一个低优先级通知。
+            val notifyManager = androidx.core.app.NotificationManagerCompat.from(applicationContext)
+            val canNotify = if (Build.VERSION.SDK_INT < 33) true else notifyManager.areNotificationsEnabled()
+            if (canNotify) {
+                try {
+                    val channelId = "proactive_worker_channel"
+                    if (Build.VERSION.SDK_INT >= 26) {
+                        val nm = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+                        val channel = android.app.NotificationChannel(
+                            channelId,
+                            "主动消息",
+                            android.app.NotificationManager.IMPORTANCE_MIN
+                        )
+                        nm.createNotificationChannel(channel)
+                    }
+                    val notif = androidx.core.app.NotificationCompat.Builder(applicationContext, channelId)
+                        .setContentTitle("正在思考...")
+                        .setSmallIcon(me.rerere.rikkahub.R.drawable.small_icon)
+                        .setPriority(androidx.core.app.NotificationCompat.PRIORITY_MIN)
+                        .build()
+                    setForeground(androidx.work.ForegroundInfo(20002, notif))
+                } catch (fe: Exception) {
+                    Log.e(TAG, "setForeground failed, continuing", fe)
+                }
+            }
+
             // Delegate to the existing trigger service logic
             // Start the foreground service which handles the actual AI generation
             val serviceIntent = android.content.Intent(applicationContext, ProactiveMessageTriggerService::class.java)
-            
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 applicationContext.startForegroundService(serviceIntent)
             } else {

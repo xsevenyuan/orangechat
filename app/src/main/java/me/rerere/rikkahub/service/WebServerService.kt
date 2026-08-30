@@ -92,16 +92,14 @@ class WebServerService : Service() {
     }
 
     private fun startForegroundCompat() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            ServiceCompat.startForeground(
-                this,
-                NOTIFICATION_ID,
-                buildStartingNotification(),
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, buildStartingNotification())
-        }
+        // 统一走 SafeForeground：先检查 POST_NOTIFICATIONS（Android 13+ 无权限时 startForeground 会抛
+        // CannotPostForegroundServiceNotificationException，且从 Binder 线程异步抛、try-catch 兜不住，直接崩）。
+        me.rerere.rikkahub.service.SafeForeground.start(
+            this,
+            NOTIFICATION_ID,
+            buildStartingNotification(),
+            specialUse = true
+        )
     }
 
     private fun startObservingState() {

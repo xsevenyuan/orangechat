@@ -122,14 +122,18 @@ class KeepAliveService : Service() {
         // 配额耗尽时 startForeground 会抛 ForegroundServiceStartNotAllowedException。
         // 这里捕获异常并优雅降级，避免崩溃整个 App。
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                startForeground(
+            // 统一走 SafeForeground：先检查 POST_NOTIFICATIONS（Android 13+ 无权限时
+            // startForeground 会抛 CannotPostForegroundServiceNotificationException，Binder 异步抛、try-catch 兜不住），
+            // 无权限则不启动前台、让服务优雅退出，而不是崩掉 App。
+            if (!me.rerere.rikkahub.service.SafeForeground.start(
+                    this,
                     NOTIFICATION_ID,
                     notification,
-                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                    specialUse = false
                 )
-            } else {
-                startForeground(NOTIFICATION_ID, notification)
+            ) {
+                stopSelf()
+                return START_NOT_STICKY
             }
         } catch (e: Exception) {
             Log.e(

@@ -181,7 +181,18 @@ class SupabaseSyncService : Service() {
                 .setSmallIcon(me.rerere.rikkahub.R.drawable.small_icon)
                 .setPriority(androidx.core.app.NotificationCompat.PRIORITY_MIN)
                 .build()
-            startForeground(20003, notification)
+            // 安全启动前台：先检查 POST_NOTIFICATIONS（Android 13+ 无权限时 startForeground 会抛
+            // CannotPostForegroundServiceNotificationException，Binder 异步抛、try-catch 兜不住）。
+            if (!me.rerere.rikkahub.service.SafeForeground.start(
+                    this, 20003, notification, specialUse = true
+                )
+            ) {
+                Log.w(TAG, "no notification permission, stop sync foreground service")
+                markSyncing(this, false)
+                scheduleNext(this)
+                stopSelf()
+                return START_NOT_STICKY
+            }
         } catch (e: Exception) {
             Log.e(TAG, "startForeground failed", e)
             markSyncing(this, false)
