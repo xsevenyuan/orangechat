@@ -7,6 +7,7 @@
 package me.rerere.rikkahub
 
 import android.app.Application
+import me.rerere.rikkahub.service.SafeStart
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -271,7 +272,7 @@ class RikkaHubApp : Application() {
                         putExtra(WebServerService.EXTRA_PORT, settings.webServerPort)
                         putExtra(WebServerService.EXTRA_LOCALHOST_ONLY, settings.webServerLocalhostOnly)
                     }
-                    startForegroundService(intent)
+                    SafeStart.service(this@RikkaHubApp, intent)
                 }
             }.onFailure {
                 Log.e(TAG, "startWebServerIfEnabled failed", it)

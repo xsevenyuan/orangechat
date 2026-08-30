@@ -7,6 +7,7 @@
 package me.rerere.rikkahub.plugin.webview
 
 import android.app.Notification
+import me.rerere.rikkahub.service.SafeStart
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -57,7 +58,7 @@ class PomodoroTimerService : android.app.Service() {
                 action = ACTION_START
                 putExtra(EXTRA_SECONDS, seconds)
             }
-            context.startForegroundService(intent)
+            SafeStart.service(context, intent)
         }
 
         fun stop(context: Context) {

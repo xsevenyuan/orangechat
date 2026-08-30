@@ -7,6 +7,7 @@
 package me.rerere.rikkahub.ui.pages.setting
 
 import android.content.Intent
+import me.rerere.rikkahub.service.SafeStart
 import android.os.Build
 
 import me.rerere.hugeicons.HugeIcons
@@ -118,7 +119,7 @@ fun SettingWebPage() {
             putExtra(WebServerService.EXTRA_PORT, settings.webServerPort)
             putExtra(WebServerService.EXTRA_LOCALHOST_ONLY, settings.webServerLocalhostOnly)
         }
-        context.startForegroundService(intent)
+        SafeStart.service(context, intent)
         scope.launch {
             settingsStore.update { it.copy(webServerEnabled = true) }
         }

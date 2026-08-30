@@ -449,7 +449,8 @@ fun SettingSystemToolsPage(vm: SettingVM = koinViewModel()) {
                                         newSetting.supabaseApiKey.isNotBlank()
                                     ) {
                                         try {
-                                            context.startForegroundService(
+                                            me.rerere.rikkahub.service.SafeStart.service(
+                                                context,
                                                 Intent(context, me.rerere.rikkahub.data.service.DeviceEventTrackingService::class.java)
                                             )
                                         } catch (e: Exception) {

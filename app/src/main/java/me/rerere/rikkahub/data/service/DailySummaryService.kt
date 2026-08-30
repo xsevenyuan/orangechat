@@ -7,6 +7,7 @@
 package me.rerere.rikkahub.data.service
 
 import android.app.AlarmManager
+import me.rerere.rikkahub.service.SafeStart
 import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
@@ -207,7 +208,7 @@ class DailySummaryService {
          */
         fun triggerNow(context: Context) {
             val serviceIntent = Intent(context, DailySummaryTriggerService::class.java)
-            context.startForegroundService(serviceIntent)
+            SafeStart.service(context, serviceIntent)
         }
     }
 }
@@ -222,7 +223,7 @@ class DailySummaryReceiver : BroadcastReceiver() {
         when (intent.action) {
             DailySummaryService.ACTION_DAILY_CRON -> {
                 val serviceIntent = Intent(context, DailySummaryTriggerService::class.java)
-                context.startForegroundService(serviceIntent)
+                SafeStart.service(context, serviceIntent)
             }
             Intent.ACTION_BOOT_COMPLETED -> {
                 Log.d(DailySummaryService.TAG, "Boot completed, rescheduling daily_cron")

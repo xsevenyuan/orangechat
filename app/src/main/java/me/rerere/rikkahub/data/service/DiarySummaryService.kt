@@ -7,6 +7,7 @@
 package me.rerere.rikkahub.data.service
 
 import android.app.AlarmManager
+import me.rerere.rikkahub.service.SafeStart
 import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
@@ -416,7 +417,7 @@ class DiarySummaryService {
          */
         fun triggerNow(context: Context) {
             val serviceIntent = Intent(context, DiarySummaryTriggerService::class.java)
-            context.startForegroundService(serviceIntent)
+            SafeStart.service(context, serviceIntent)
         }
 
     }
@@ -431,7 +432,7 @@ class DiarySummaryReceiver : BroadcastReceiver() {
         when (intent.action) {
             DiarySummaryService.ACTION_DIARY_SUMMARY -> {
                 val serviceIntent = Intent(context, DiarySummaryTriggerService::class.java)
-                context.startForegroundService(serviceIntent)
+                SafeStart.service(context, serviceIntent)
             }
             Intent.ACTION_BOOT_COMPLETED -> {
                 Log.d(DiarySummaryService.TAG, "Boot completed, rescheduling diary summary")

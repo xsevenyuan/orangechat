@@ -101,3 +101,31 @@ object SafeForeground {
         return ok
     }
 }
+
+/**
+ * 安全启动 Service：有通知权限 -> startForegroundService；无权限 -> startService。
+ * 用于所有"外部/广播/定时"触发 Service 的调用点，避免 Android 14+ 下
+ * startForegroundService 后 5 秒内未 startForeground 而抛 ForegroundServiceDidNotStartInTimeException。
+ */
+object SafeStart {
+    private const val TAG = "SafeStart"
+
+    fun service(context: android.content.Context, intent: android.content.Intent) {
+        try {
+            val hasNotifPerm = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()
+            } else {
+                true
+            }
+            if (hasNotifPerm) {
+                context.startForegroundService(intent)
+            } else {
+                Log.w(TAG, "no POST_NOTIFICATIONS, fallback to background startService to avoid crash")
+                context.startService(intent)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "SafeStart failed, fallback to startService", e)
+            try { context.startService(intent) } catch (e2: Exception) { Log.e(TAG, "startService fallback failed", e2) }
+        }
+    }
+}

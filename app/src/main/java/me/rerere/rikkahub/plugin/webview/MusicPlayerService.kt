@@ -7,6 +7,7 @@
 package me.rerere.rikkahub.plugin.webview
 
 import android.app.PendingIntent
+import me.rerere.rikkahub.service.SafeStart
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -67,7 +68,7 @@ class MusicPlayerService : Service() {
                 putExtra(EXTRA_TITLE, title)
                 putExtra(EXTRA_ARTIST, artist)
             }
-            context.startForegroundService(intent)
+            SafeStart.service(context, intent)
         }
 
         fun pause(context: Context) {

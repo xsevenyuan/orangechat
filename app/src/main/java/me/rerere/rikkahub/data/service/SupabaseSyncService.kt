@@ -7,17 +7,20 @@
 package me.rerere.rikkahub.data.service
 
 import android.app.AlarmManager
+import me.rerere.rikkahub.service.SafeStart
 import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import androidx.core.app.NotificationManagerCompat
 import me.rerere.rikkahub.CHAT_COMPLETED_NOTIFICATION_CHANNEL_ID
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import org.koin.core.context.GlobalContext
@@ -118,7 +121,21 @@ class SupabaseSyncService : Service() {
             // 启动Service执行同步
             val serviceIntent = Intent(context, SupabaseSyncService::class.java)
             try {
-                context.startForegroundService(serviceIntent)
+                // 前置检查通知权限：Android 13+ 无 POST_NOTIFICATIONS 时，
+                // startForegroundService() 发出后系统要求 5 秒内必须 startForeground()，
+                // 否则直接抛 ForegroundServiceDidNotStartInTimeException 崩溃。
+                // 有权限 -> 前台启动；无权限 -> 后台启动，避开崩溃。
+                val hasNotifPerm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    NotificationManagerCompat.from(context).areNotificationsEnabled()
+                } else {
+                    true
+                }
+                if (hasNotifPerm) {
+                    SafeStart.service(context, serviceIntent)
+                } else {
+                    Log.w(TAG, "no POST_NOTIFICATIONS, fallback to background startService to avoid crash")
+                    context.startService(serviceIntent)
+                }
                 Log.d(TAG, "startForegroundService called successfully")
             } catch (e: Exception) {
                 Log.e(TAG, "startForegroundService failed, trying direct sync", e)
@@ -244,7 +261,18 @@ class SupabaseSyncReceiver : BroadcastReceiver() {
                 SupabaseSyncService.markSyncing(context, true)
                 val serviceIntent = Intent(context, SupabaseSyncService::class.java)
                 try {
-                    context.startForegroundService(serviceIntent)
+                    // 前置检查通知权限，避免无权限时 startForegroundService 触发的 5 秒崩溃
+                    val hasNotifPerm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        NotificationManagerCompat.from(context).areNotificationsEnabled()
+                    } else {
+                        true
+                    }
+                    if (hasNotifPerm) {
+                        SafeStart.service(context, serviceIntent)
+                    } else {
+                        Log.w("SupabaseSyncService", "no POST_NOTIFICATIONS, fallback to background startService")
+                        context.startService(serviceIntent)
+                    }
                 } catch (e: Exception) {
                     Log.e("SupabaseSyncService", "Failed to start service from receiver", e)
                     // Service启动失败，用fallback

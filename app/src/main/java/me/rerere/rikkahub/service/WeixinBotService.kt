@@ -232,7 +232,7 @@ class WeixinBotService : Service(), org.koin.core.component.KoinComponent {
         fun start(context: Context) {
             val intent = Intent(context, WeixinBotService::class.java)
             try {
-                context.startForegroundService(intent)
+                SafeStart.service(context, intent)
             } catch (_: Exception) {
                 try { context.startService(intent) } catch (_: Exception) {}
             }

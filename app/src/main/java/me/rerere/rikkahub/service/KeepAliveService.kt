@@ -65,9 +65,23 @@ class KeepAliveService : Service() {
             }
             val intent = Intent(context, KeepAliveService::class.java)
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
+                // 前置检查通知权限：Android 13+ 无 POST_NOTIFICATIONS 时，
+                // 一旦 startForegroundService() 发出，系统要求 5 秒内必须 startForeground()，
+                // 否则直接抛 ForegroundServiceDidNotStartInTimeException 崩溃整个 App。
+                // 因此：有通知权限 -> 走前台服务；无权限 -> 走普通后台服务，避免兜底 stopSelf 也救不回来。
+                val hasNotifPerm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()
                 } else {
+                    true
+                }
+                if (hasNotifPerm) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        SafeStart.service(context, intent)
+                    } else {
+                        context.startService(intent)
+                    }
+                } else {
+                    Log.w(TAG, "no POST_NOTIFICATIONS, fallback to background startService to avoid crash")
                     context.startService(intent)
                 }
                 Log.d(TAG, "保活服务启动请求已发送")

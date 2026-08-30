@@ -7,6 +7,7 @@
 package me.rerere.rikkahub.ui.pages.setting
 
 import android.content.Intent
+import me.rerere.rikkahub.service.SafeStart
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -79,7 +80,7 @@ fun SettingProactiveMessagePage(vm: SettingVM = koinInject()) {
                 ProactiveMessageService.cancel(context)
                 try {
                     val intent = android.content.Intent(context, me.rerere.rikkahub.data.service.DeviceEventAiTriggerService::class.java)
-                    context.startForegroundService(intent)
+                    SafeStart.service(context, intent)
                 } catch (e: Exception) {
                     android.util.Log.e("SettingProactiveMessage", "Failed to start aggressive mode service", e)
                 }

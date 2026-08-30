@@ -7,6 +7,7 @@
 package me.rerere.rikkahub.data.service
 
 import android.app.AlarmManager
+import me.rerere.rikkahub.service.SafeStart
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -204,7 +205,7 @@ class ProactiveMessageService : KoinComponent {
             scheduleNext(context, setting)
             // 立即触发：直接启动TriggerService
             val serviceIntent = Intent(context, ProactiveMessageTriggerService::class.java)
-            context.startForegroundService(serviceIntent)
+            SafeStart.service(context, serviceIntent)
         }
     }
 
@@ -374,7 +375,7 @@ class ProactiveMessageReceiver : BroadcastReceiver() {
             ProactiveMessageService.ACTION_PROACTIVE_MESSAGE -> {
                 Log.d(ProactiveMessageService.TAG, "Starting ProactiveMessageTriggerService...")
                 val serviceIntent = Intent(context, ProactiveMessageTriggerService::class.java)
-                context.startForegroundService(serviceIntent)
+                SafeStart.service(context, serviceIntent)
             }
             Intent.ACTION_BOOT_COMPLETED -> {
                 Log.d(ProactiveMessageService.TAG, "Boot completed, rescheduling proactive message")

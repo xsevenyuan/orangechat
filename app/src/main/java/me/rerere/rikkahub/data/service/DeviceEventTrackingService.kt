@@ -7,6 +7,7 @@
 package me.rerere.rikkahub.data.service
 
 import android.app.Notification
+import me.rerere.rikkahub.service.SafeStart
 import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
@@ -68,7 +69,7 @@ class DeviceEventTrackingService : Service() {
                     ) {
                         val intent = Intent(context, DeviceEventTrackingService::class.java)
                         try {
-                            context.startForegroundService(intent)
+                            SafeStart.service(context, intent)
                             Log.d(TAG, "startIfEnabled: started foreground service")
                         } catch (e: Exception) {
                             Log.e(TAG, "startIfEnabled: startForegroundService failed", e)

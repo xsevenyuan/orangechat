@@ -7,6 +7,7 @@
 package me.rerere.rikkahub.data.service
 
 import android.app.AlarmManager
+import me.rerere.rikkahub.service.SafeStart
 import android.content.Context
 import android.os.Build
 import android.os.PowerManager
@@ -147,7 +148,7 @@ class ProactiveMessageWorker(
             val serviceIntent = android.content.Intent(applicationContext, ProactiveMessageTriggerService::class.java)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                applicationContext.startForegroundService(serviceIntent)
+                SafeStart.service(applicationContext, serviceIntent)
             } else {
                 applicationContext.startService(serviceIntent)
             }

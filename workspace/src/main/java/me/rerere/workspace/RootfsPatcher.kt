@@ -23,6 +23,7 @@ class RootfsPatcher {
         ensureLocale(etcDir, options.locale)
         ensureGroupNames(etcDir, options.groupIds.ifEmpty { currentSupplementaryGroupIds() })
         ensureTempDirs(linuxDir)
+        ensureLongrunHelper(linuxDir)
     }
 
     private fun ensureRootfsDns(
@@ -157,6 +158,42 @@ class RootfsPatcher {
             setReadable(true, true)
             setWritable(true, true)
             setExecutable(true, true)
+        }
+    }
+
+    /**
+     * 注入 longrun 命令到 /root/.bashrc。
+     * longrun 用 setsid 脱离子 shell 进程组，使 apt/大下载等长任务不受
+     * proot 的 --kill-on-exit 影响（会话结束也不会连坐杀掉），便于一次装完工具。
+     * 纯追加，不改动现有清理/运行逻辑。
+     */
+    private fun ensureLongrunHelper(linuxDir: File) {
+        val rootDir = File(linuxDir, "root")
+        rootDir.mkdirs()
+        val bashrc = File(rootDir, ".bashrc")
+        val rcContent = """
+            # RikkaHub workspace: longrun helper (long tasks survive session end)
+            # 用法: longrun <命令...>
+            # 用 nohup + setsid 把任务扔到后台独立进程组, 写日志到 /tmp/longrun.log,
+            # 这样即使终端命令中途返回/超时, 任务也继续跑, 不受 --kill-on-exit 影响。
+            longrun() {
+              local log=/tmp/longrun.log
+              local pid
+              nohup setsid "${'$'}@" > "${'$'}log" 2>&1 < /dev/null &
+              pid=${'$'}!
+              echo "longrun started (pid=${'$'}pid), log: ${'$'}log"
+              echo "follow: tail -f ${'$'}log    finish: kill ${'$'}pid"
+            }
+            export -f longrun 2>/dev/null
+        """.trimIndent()
+        val existing = if (bashrc.isFile) bashrc.readText() else ""
+        if (!existing.contains("longrun()")) {
+            bashrc.appendText(
+                "\n" +
+                "# RikkaHub longrun\n" +
+                rcContent +
+                "\n"
+            )
         }
     }
 

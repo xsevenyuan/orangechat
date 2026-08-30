@@ -7,6 +7,7 @@
 package me.rerere.rikkahub.data.service
 
 import android.app.Notification
+import me.rerere.rikkahub.service.SafeStart
 import android.app.PendingIntent
 import android.app.Service
 import android.app.usage.UsageEvents
@@ -69,7 +70,7 @@ class DeviceEventAiTriggerService : Service() {
                     if (proactiveSetting.aggressiveModeEnabled) {
                         val intent = Intent(context, DeviceEventAiTriggerService::class.java)
                         try {
-                            context.startForegroundService(intent)
+                            SafeStart.service(context, intent)
                             Log.d(TAG, "startIfEnabled: started foreground service")
                         } catch (e: Exception) {
                             Log.e(TAG, "startIfEnabled: startForegroundService failed", e)
@@ -337,7 +338,7 @@ class DeviceEventAiTriggerService : Service() {
                 putExtra(ProactiveMessageTriggerService.EXTRA_FORCE_TRIGGER, true)
                 putExtra(ProactiveMessageTriggerService.EXTRA_DEVICE_EVENT_CONTEXT, eventContext)
             }
-            startForegroundService(triggerIntent)
+            SafeStart.service(this@DeviceEventAiTriggerService, triggerIntent)
 
         } catch (e: Exception) {
             Log.e(TAG, "triggerAiThinking failed", e)
