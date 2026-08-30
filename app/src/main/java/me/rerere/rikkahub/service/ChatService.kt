@@ -75,6 +75,12 @@ import me.rerere.rikkahub.data.ai.tools.ToolNaming
 import me.rerere.rikkahub.data.ai.tools.createSearchTools
 import me.rerere.rikkahub.data.ai.tools.createSkillTools
 import me.rerere.rikkahub.data.ai.tools.createWorkspaceTools
+import me.rerere.rikkahub.data.ai.tools.createGetAppSettingsTool
+import me.rerere.rikkahub.data.ai.tools.createSetAppSettingsTool
+import me.rerere.rikkahub.data.ai.tools.createLorebookListTool
+import me.rerere.rikkahub.data.ai.tools.createLorebookCreateTool
+import me.rerere.rikkahub.data.ai.tools.createLorebookUpdateTool
+import me.rerere.rikkahub.data.ai.tools.createLorebookDeleteTool
 import me.rerere.rikkahub.data.files.SkillManager
 import me.rerere.rikkahub.plugin.loader.PluginLoader
 import me.rerere.rikkahub.plugin.provider.PluginToolProvider
@@ -900,6 +906,18 @@ addAll(localTools.getTools(assistant.localTools, me.rerere.rikkahub.data.ai.tool
                     if (systemToolsOptions.isNotEmpty()) {
                         val systemTools = SystemTools(context, settings)
                         addAll(systemTools.getTools(systemToolsOptions, conversation.currentMessages, filesManager))
+                    }
+                    // AI 设置感知与修改（get_app_settings/set_app_settings）——独立开关
+                    if (settings.systemToolsSetting.appSettingsEnabled) {
+                        add(createGetAppSettingsTool(settingsStore))
+                        add(createSetAppSettingsTool(settingsStore))
+                    }
+                    // 世界书修改（lorebook_* 工具）——独立开关
+                    if (settings.systemToolsSetting.lorebookEnabled) {
+                        add(createLorebookListTool(settingsStore))
+                        add(createLorebookCreateTool(settingsStore))
+                        add(createLorebookUpdateTool(settingsStore))
+                        add(createLorebookDeleteTool(settingsStore))
                     }
                     addAll(createWorkspaceToolsIfReady(assistant.workspaceId?.toString(), conversation.workspaceCwd))
                     if (assistant.enabledSkills.isNotEmpty()) {
