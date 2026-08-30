@@ -830,6 +830,13 @@ class ChatService(
         // session 需要在 runCatching 外声明，以便 .onSuccess 中也能访问 saveMutex
         val session = getOrCreateSession(conversationId)
 
+        // 流式生成期间的"断点落库"节流器：流式 SSE 每秒可能到达几十次，
+        // 如果每个 chunk 都 saveConversation 会导致高频写库卡顿。
+        // 这里每约 800ms 把已生成的内容落库一次——一旦流中途中断（断网/401/超时/杀后台），
+        // 数据库里就已经有"断点内容"，重载会话不会丢掉已生成的部分。
+        var lastPersistMs = 0L
+        var persistedAnyMs = false
+
         runCatching {
 
             // reset suggestions
@@ -946,6 +953,16 @@ addAll(localTools.getTools(assistant.localTools, me.rerere.rikkahub.data.ai.tool
                             .updateCurrentMessages(chunk.messages)
                         updateConversation(conversationId, updatedConversation)
 
+                        // 流式中途节流落库：把已生成的内容持续写进数据库，
+                        // 保证流中断时数据库里有断点内容（不再"一断就丢"）。
+                        val now = System.currentTimeMillis()
+                        if (now - lastPersistMs >= 800L) {
+                            lastPersistMs = now
+                            runCatching { saveConversation(conversationId, updatedConversation) }
+                                .onFailure { Log.w(TAG, "mid-stream persist failed", it) }
+                            if (!persistedAnyMs) persistedAnyMs = true
+                        }
+
                         // 如果应用不在前台，发送 Live Update 通知
                         if (!isForeground.value && settings.displaySetting.enableNotificationOnMessageGeneration && settings.displaySetting.enableLiveUpdateNotification) {
                             sendLiveUpdateNotification(conversationId, chunk.messages, senderName)
@@ -961,6 +978,25 @@ addAll(localTools.getTools(assistant.localTools, me.rerere.rikkahub.data.ai.tool
             addError(it, conversationId, title = context.getString(R.string.error_title_generation))
             Logging.log(TAG, "handleMessageComplete: $it")
             Logging.log(TAG, it.stackTraceToString())
+
+            // 失败时也落库一次，**保留已生成的部分内容**（不回滚到只有用户消息）。
+            // 之前只有在 .onSuccess 才落库，流中断（断网/401/超时/杀后台）时内容只留在内存，
+            // 会话重载就丢，用户要重新思考一遍。这里把失败时的最新状态（onCompletion 已 finishReasoning）
+            // 落库，让对话框里能看到"生成到一半"的内容。
+            // 只有确实生成过内容（最后一条 assistant 消息非空/有部件）才落库，避免白写一条空回复。
+            if (persistedAnyMs || System.currentTimeMillis() - lastPersistMs < 800L) {
+                val rawLatest = getConversationFlow(conversationId).value
+                val lastAssistant = rawLatest.currentMessages.lastOrNull { it.role == MessageRole.ASSISTANT }
+                val hasPartialContent = lastAssistant?.parts?.isNotEmpty() == true
+                if (hasPartialContent) {
+                    runCatching {
+                        saveConversation(conversationId, rawLatest)
+                        Log.w(TAG, "handleMessageComplete: persisted partial output on failure, conversationId=$conversationId")
+                    }.onFailure { Log.w(TAG, "persist partial output on failure failed", it) }
+                } else {
+                    Log.w(TAG, "handleMessageComplete: failure but no partial content to persist, conversationId=$conversationId")
+                }
+            }
         }.onSuccess {
             val finalConversation = session.saveMutex.withLock {
                 val latest = getConversationFlow(conversationId).value
