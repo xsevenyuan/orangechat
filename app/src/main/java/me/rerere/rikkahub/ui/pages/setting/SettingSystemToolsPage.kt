@@ -1211,6 +1211,46 @@ fun SettingSystemToolsPage(vm: SettingVM = koinViewModel()) {
             }
             }
 
+            // AI 设置修改
+            item {
+            CardGroup(title = { Text("AI 设置修改") }, modifier = Modifier.padding(horizontal = 8.dp)) {
+                item(
+                    leadingContent = { Icon(imageVector = HugeIcons.Flashlight, contentDescription = null) },
+                    headlineContent = { Text("启用设置感知与修改") },
+                    supportingContent = { Text("允许 AI 读取 App 设置并直接修改（外观/模型/提示词/开关/语音/搜索/助手/MCP/小程序/快捷消息/模式注入）。API 配置、密码、世界书等敏感设置不可修改。") },
+                    trailingContent = {
+                        Switch(
+                            checked = systemToolsSetting.appSettingsEnabled,
+                            onCheckedChange = { enabled -> updateSystemToolsSetting(systemToolsSetting.copy(appSettingsEnabled = enabled)) }
+                        )
+                    }
+                )
+                if (systemToolsSetting.appSettingsEnabled) {
+                    item(
+                        headlineContent = { Text("说明") },
+                        supportingContent = { Text("AI 可用 get_app_settings 查看设置、set_app_settings 修改（白名单字段）。敏感字段（提供商密钥/Web服务器密码/备份配置）拒绝修改；世界书为独立开关控制。") }
+                    )
+                }
+            }
+            }
+
+            // 世界书修改
+            item {
+            CardGroup(title = { Text("世界书修改") }, modifier = Modifier.padding(horizontal = 8.dp)) {
+                item(
+                    leadingContent = { Icon(imageVector = HugeIcons.FingerPrint, contentDescription = null) },
+                    headlineContent = { Text("启用世界书修改") },
+                    supportingContent = { Text("允许 AI 直接读取/创建/修改/删除世界书词条（lorebook_* 工具）。此开关独立于 AI 设置修改。") },
+                    trailingContent = {
+                        Switch(
+                            checked = systemToolsSetting.lorebookEnabled,
+                            onCheckedChange = { enabled -> updateSystemToolsSetting(systemToolsSetting.copy(lorebookEnabled = enabled)) }
+                        )
+                    }
+                )
+            }
+            }
+
 
         }
 
