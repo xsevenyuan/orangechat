@@ -14,6 +14,8 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -241,154 +243,170 @@ class ChatCompletionsAPI(
 
         Log.i(TAG, "streamText: ${json.encodeToString(requestBody)}")
 
-        // just for debugging response body
-        // println(client.newCall(request).await().body?.string())
+        // ===== 修复: 流式被网络/中间层掐断(Broken pipe/connection abort/超时/EOF)时自动重连, 而不是直接断流 =====
+        val maxRetries = 2
+        var retryCount = 0
 
-        val listener = object : EventSourceListener() {
-            override fun onEvent(
-                eventSource: EventSource,
-                id: String?,
-                type: String?,
-                data: String
-            ) {
-                if (data == "[DONE]") {
-                    println("[onEvent] (done) 结束流: $data")
-                    close()
-                    return
-                }
-                Log.d(TAG, "onEvent: $data")
-                // okhttp-sse 的 onEvent 拿到的 data 已经是按 SSE 协议规范拼好的完整
-                // 消息(网关把一条 data: 物理拆成多行发送时, okHttp 会用 '\n' 还原)。
-                // 这里直接当一个完整 JSON 解析即可, 不能再按 '\n' 二次拆分 —— 否则当
-                // tool_call 的 arguments 含真实换行且被中间链路断行时, 会把完整 JSON
-                // 拆成不完整碎片导致 Unexpected EOF。
-                val chunkJson = try {
-                    json.parseToJsonElement(data).jsonObject
-                } catch (e: Throwable) {
-                    // 上游真的发了坏数据时不要让整个流直接崩掉裸抛 Unexpected EOF。
-                    // 记录长度和前后片段便于定位, 但避免把整个超长内容打进日志。
-                    val preview = if (data.length > 200) {
-                        "${data.take(100)}...(${data.length} chars)...${data.takeLast(100)}"
-                    } else {
-                        data
+        // 当前激活的 EventSource, 供 awaitClose 统一取消
+        var currentEventSource: EventSource? = null
+
+        fun openStream() {
+            val listener = object : EventSourceListener() {
+                override fun onEvent(
+                    eventSource: EventSource,
+                    id: String?,
+                    type: String?,
+                    data: String
+                ) {
+                    if (data == "[DONE]") {
+                        println("[onEvent] (done) 结束流: $data")
+                        close()
+                        return
                     }
-                    Log.w(
-                        TAG,
-                        "onEvent: failed to parse SSE data (len=${data.length}, preview=$preview)",
-                        e
-                    )
-                    close(
-                        Exception("Failed to parse stream data: ${e.message} (data length=${data.length})", e)
-                    )
-                    return
-                }
-                if (chunkJson["error"] != null) {
-                    // 流式响应中携带了 error 字段 (HTTP 连接本身是200, 但错误包在流数据里)
-                    // 记录完整的原始 error JSON 内容, 便于排查上游返回的具体错误原因
-                    val errorRawJson = chunkJson["error"].toString()
-                    val model = chunkJson["model"]?.jsonPrimitive?.contentOrNull ?: "unknown"
-                    val errorMsg = "onEvent stream error | model=$model | time=${System.currentTimeMillis()} | raw error JSON: $errorRawJson"
-                    Log.e(TAG, errorMsg)
-                    Logging.log(TAG, errorMsg)
-                    val error = chunkJson["error"]!!.parseErrorDetail()
-                    Logging.log(TAG, "onEvent stream error parsed: $error")
-                    close(error)
-                    return
-                }
-                // 某些网关 (如 silas.zeabur.app) 在上游调用失败时, 不返回标准 error 字段,
-                // 而是把错误信息伪装成正常的 content delta 返回 (id="chatcmpl-error")。
-                // 如果不拦截, 错误信息会被当成 AI 正常回复存入历史, 导致后续请求全部失败。
-                val chunkId = chunkJson["id"]?.jsonPrimitive?.contentOrNull ?: ""
-                if (chunkId == "chatcmpl-error") {
-                    val errorContent = chunkJson["choices"]?.jsonArray?.getOrNull(0)
-                        ?.jsonObject?.get("delta")?.jsonObject?.get("content")
-                        ?.jsonPrimitive?.contentOrNull ?: "unknown gateway error"
-                    Log.e(TAG, "onEvent: gateway returned error disguised as content: $errorContent")
-                    Logging.log(TAG, "onEvent: gateway error disguised as content: $errorContent")
-                    close(Exception("Gateway error: $errorContent"))
-                    return
-                }
-                val id = chunkJson["id"]?.jsonPrimitive?.contentOrNull ?: ""
-                val model = chunkJson["model"]?.jsonPrimitive?.contentOrNull ?: ""
-
-                val choices = chunkJson["choices"]?.jsonArray ?: JsonArray(emptyList())
-                val choiceList = buildList {
-                    if (choices.isNotEmpty()) {
-                        val choice = choices[0].jsonObject
-                        val message =
-                            choice["delta"]?.jsonObject ?: choice["message"]?.jsonObject
-                            ?: throw Exception("delta/message is null")
-                        val finishReason =
-                            choice["finish_reason"]?.jsonPrimitive?.contentOrNull
-                                ?: "unknown"
-                        add(
-                            UIMessageChoice(
-                                index = 0,
-                                delta = parseMessage(message),
-                                message = null,
-                                finishReason = finishReason,
-                            )
+                    Log.d(TAG, "onEvent: $data")
+                    val chunkJson = try {
+                        json.parseToJsonElement(data).jsonObject
+                    } catch (e: Throwable) {
+                        val preview = if (data.length > 200) {
+                            "${data.take(100)}...(${data.length} chars)...${data.takeLast(100)}"
+                        } else {
+                            data
+                        }
+                        Log.w(
+                            TAG,
+                            "onEvent: failed to parse SSE data (len=${data.length}, preview=$preview)",
+                            e
                         )
+                        close(
+                            Exception("Failed to parse stream data: ${e.message} (data length=${data.length})", e)
+                        )
+                        return
                     }
+                    if (chunkJson["error"] != null) {
+                        val errorRawJson = chunkJson["error"].toString()
+                        val model = chunkJson["model"]?.jsonPrimitive?.contentOrNull ?: "unknown"
+                        val errorMsg = "onEvent stream error | model=$model | time=${System.currentTimeMillis()} | raw error JSON: $errorRawJson"
+                        Log.e(TAG, errorMsg)
+                        Logging.log(TAG, errorMsg)
+                        val error = chunkJson["error"]!!.parseErrorDetail()
+                        Logging.log(TAG, "onEvent stream error parsed: $error")
+                        close(error)
+                        return
+                    }
+                    val chunkId = chunkJson["id"]?.jsonPrimitive?.contentOrNull ?: ""
+                    if (chunkId == "chatcmpl-error") {
+                        val errorContent = chunkJson["choices"]?.jsonArray?.getOrNull(0)
+                            ?.jsonObject?.get("delta")?.jsonObject?.get("content")
+                            ?.jsonPrimitive?.contentOrNull ?: "unknown gateway error"
+                        Log.e(TAG, "onEvent: gateway returned error disguised as content: $errorContent")
+                        Logging.log(TAG, "onEvent: gateway error disguised as content: $errorContent")
+                        close(Exception("Gateway error: $errorContent"))
+                        return
+                    }
+                    val id = chunkJson["id"]?.jsonPrimitive?.contentOrNull ?: ""
+                    val model = chunkJson["model"]?.jsonPrimitive?.contentOrNull ?: ""
+
+                    val choices = chunkJson["choices"]?.jsonArray ?: JsonArray(emptyList())
+                    val choiceList = buildList {
+                        if (choices.isNotEmpty()) {
+                            val choice = choices[0].jsonObject
+                            val message =
+                                choice["delta"]?.jsonObject ?: choice["message"]?.jsonObject
+                                ?: throw Exception("delta/message is null")
+                            val finishReason =
+                                choice["finish_reason"]?.jsonPrimitive?.contentOrNull
+                                    ?: "unknown"
+                            add(
+                                UIMessageChoice(
+                                    index = 0,
+                                    delta = parseMessage(message),
+                                    message = null,
+                                    finishReason = finishReason,
+                                )
+                            )
+                        }
+                    }
+                    val usage = parseTokenUsage(chunkJson["usage"] as? JsonObject)
+
+                    val messageChunk = MessageChunk(
+                        id = id,
+                        model = model,
+                        choices = choiceList,
+                        usage = usage
+                    )
+                    trySend(messageChunk)
                 }
-                val usage = parseTokenUsage(chunkJson["usage"] as? JsonObject)
 
-                val messageChunk = MessageChunk(
-                    id = id,
-                    model = model,
-                    choices = choiceList,
-                    usage = usage
-                )
-                trySend(messageChunk)
-            }
+                override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
+                    var exception = t
+                    t?.printStackTrace()
+                    val failureMsg = "onFailure: ${t?.javaClass?.name} ${t?.message} / response=$response"
+                    Log.e(TAG, failureMsg)
+                    Logging.log(TAG, failureMsg)
 
-            override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
-                var exception = t
-
-                t?.printStackTrace()
-                val failureMsg = "onFailure: ${t?.javaClass?.name} ${t?.message} / response=$response"
-                Log.e(TAG, failureMsg)
-                Logging.log(TAG, failureMsg)
-
-                val bodyRaw = response?.body?.stringSafe()
-                // 记录上游返回的原始响应体, 便于排查 400/500 等错误的具体原因
-                if (!bodyRaw.isNullOrBlank()) {
-                    val bodyMsg = "onFailure: raw response body (HTTP ${response?.code}): $bodyRaw"
-                    Log.e(TAG, bodyMsg)
-                    Logging.log(TAG, bodyMsg)
-                }
-                try {
+                    val bodyRaw = response?.body?.stringSafe()
                     if (!bodyRaw.isNullOrBlank()) {
-                        val bodyElement = Json.parseToJsonElement(bodyRaw)
-                        exception = bodyElement.parseErrorDetail()
-                        val detailMsg = "onFailure: parsed error detail: $exception"
-                        Log.e(TAG, detailMsg)
-                        Logging.log(TAG, detailMsg)
+                        val bodyMsg = "onFailure: raw response body (HTTP ${response?.code}): $bodyRaw"
+                        Log.e(TAG, bodyMsg)
+                        Logging.log(TAG, bodyMsg)
                     }
-                } catch (e: Throwable) {
-                    val parseMsg = "onFailure: failed to parse error body: $bodyRaw"
-                    Log.w(TAG, parseMsg, e)
-                    Logging.log(TAG, parseMsg)
-                    exception = e
-                } finally {
+                    try {
+                        if (!bodyRaw.isNullOrBlank()) {
+                            val bodyElement = Json.parseToJsonElement(bodyRaw)
+                            exception = bodyElement.parseErrorDetail()
+                            val detailMsg = "onFailure: parsed error detail: $exception"
+                            Log.e(TAG, detailMsg)
+                            Logging.log(TAG, detailMsg)
+                        }
+                    } catch (e: Throwable) {
+                        val parseMsg = "onFailure: failed to parse error body: $bodyRaw"
+                        Log.w(TAG, parseMsg, e)
+                        Logging.log(TAG, parseMsg)
+                        exception = e
+                    }
+
+                    // 判断是否为"可重试的连接中断"(网络层断开, 非上游业务错误)
+                    val msg = (t?.message?.lowercase() ?: "") + " " + (exception?.message?.lowercase() ?: "")
+                    val isConnResetOrAbort = msg.contains("broken pipe") || msg.contains("connection") ||
+                        msg.contains("abort") || msg.contains("reset") || msg.contains("closed") ||
+                        msg.contains("socket timeout") || msg.contains("timeout") ||
+                        msg.contains("unexpected end of stream") || msg.contains("eof") ||
+                        msg.contains("failed to connect") || msg.contains("canceled")
+                    val isServerError = response?.code in 500..599
+                    val isRetryable = (isConnResetOrAbort || isServerError)
+
+                    if (isRetryable && retryCount < maxRetries) {
+                        retryCount++
+                        Log.w(TAG, "onFailure: 连接中断, 自动重连第 $retryCount/$maxRetries 次 (err=$msg)")
+                        Logging.log(TAG, "stream retry #$retryCount for ${providerSetting.baseUrl}")
+                        // 取消旧连接, 延迟后重开(避免瞬时重连风暴)
+                        eventSource.cancel()
+                        launch {
+                            delay(500L * retryCount)
+                            openStream()
+                        }
+                        return
+                    }
+
                     close(exception)
                 }
-            }
 
-            override fun onClosed(eventSource: EventSource) {
-                close()
+                override fun onClosed(eventSource: EventSource) {
+                    close()
+                }
             }
+            val es = EventSources.createFactory(client).newEventSource(request, listener)
+            currentEventSource = es
         }
 
-        val eventSource = EventSources.createFactory(client).newEventSource(request, listener)
+        openStream()
 
         awaitClose {
             println("[awaitClose] 关闭eventSource ")
-            eventSource.cancel()
+            currentEventSource?.cancel()
         }
-        // trySend 在缓冲满时会静默丢弃 delta, 导致回复中间缺字 (#1295), 因此缓冲必须无界。
-        // 与上游 rikkahub 对齐: 在 callbackFlow 上叠加 Channel.UNLIMITED 缓冲。
     }.buffer(Channel.UNLIMITED)
+
 
 
     private fun buildChatCompletionRequest(
